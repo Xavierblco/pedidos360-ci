@@ -21,3 +21,7 @@ aws-credentials
 .vscode/
 *.iml
 .DS_Store
+
+# Parcial 2: credenciales del Learner Lab para los scripts de infra/
+infra/credenciales.ps1
+**/credenciales.ps1

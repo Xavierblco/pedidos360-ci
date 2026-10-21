@@ -1,6 +1,8 @@
 import { fetchAuthSession } from "aws-amplify/auth";
 
 const API_URL = import.meta.env.VITE_API_URL;
+// Parcial 2: mensajeria-admin. Si no se define, se usa el mismo punto de entrada (API Gateway / Nginx).
+const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || API_URL;
 
 /**
  * Helper centralizado para llamar al backend:
@@ -11,6 +13,15 @@ const API_URL = import.meta.env.VITE_API_URL;
  * 5) devuelve la respuesta ya parseada.
  */
 export async function apiFetch(path, options = {}) {
+  return request(API_URL, path, options);
+}
+
+/** Igual que apiFetch, pero contra el microservicio mensajeria-admin (requiere rol ADMIN). */
+export async function adminFetch(path, options = {}) {
+  return request(ADMIN_API_URL, path, options);
+}
+
+async function request(baseUrl, path, options) {
   const session = await fetchAuthSession();
   const token = session.tokens?.idToken?.toString();
 
@@ -18,7 +29,7 @@ export async function apiFetch(path, options = {}) {
     throw new Error("No hay sesión activa. Inicia sesión nuevamente.");
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",

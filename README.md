@@ -1,6 +1,8 @@
 # Pedidos360
 
-Sistema de gestión de pedidos desarrollado para la **Evaluación Parcial N°1 — DSY1107 (Desarrollo Cloud Native I, DuocUC)**.
+Sistema de gestión de pedidos desarrollado para las **Evaluaciones Parciales N°1 y N°2 — DSY1107 (Desarrollo Cloud Native I, DuocUC)**.
+
+> **Parcial 2:** se agregó mensajería asíncrona con **Amazon SNS + SQS** (1 tópico, 3 colas con DLQ, fanout + filtro de suscripción), dos microservicios nuevos (`eventos-service` y `mensajeria-admin`), monitoreo con **CloudWatch** y un panel de administración en el frontend. Todo está en la [sección 14](#14-mensajería-asíncrona-con-sns-y-sqs-parcial-2).
 
 Pedidos360 demuestra, de punta a punta, un flujo de autenticación y autorización real con **Amazon Cognito**, comunicación segura entre **microservicios Spring Boot**, y un **frontend React con AWS Amplify**, todo ejecutable localmente con Docker y listo para desplegar en AWS sin reescribir código.
 
@@ -47,7 +49,22 @@ Pedidos360 es un sistema simple de gestión de pedidos con dos entidades de nego
                    ▼                 ▼
             productos-db        pedidos-db
              (PostgreSQL)       (PostgreSQL)
+                                     │ publica PEDIDO_CREADO / PEDIDO_ESTADO_ACTUALIZADO
+                                     ▼
+                         ┌───────────────────────┐        ┌────────────────────┐
+                         │ SNS pedidos360-eventos │◀──────│  mensajeria-admin  │ (topología, colas,
+                         └───┬────────┬────────┬──┘        │  API REST /admin)  │  DLQ, consumidores)
+                  (fanout)   │ (filtro│ENVIO)  │ (fanout)  └────────────────────┘
+                             ▼        ▼        ▼
+                   notificaciones  despacho  auditoria   ← 3 colas SQS, cada una con su DLQ
+                             └────────┼────────┘
+                                      ▼
+                              ┌───────────────┐
+                              │ eventos-service│──▶ eventos-db (PostgreSQL)
+                              └───────────────┘
 ```
+
+El detalle de la mensajería (Parcial 2) está en la [sección 14](#14-mensajería-asíncrona-con-sns-y-sqs-parcial-2).
 
 En **local**, el "API Gateway" se simula con un reverse proxy Nginx delante del frontend (ver sección 8), y las "instancias EC2" son contenedores Docker de cada microservicio. La lógica de negocio y de seguridad es idéntica en ambos entornos — solo cambian variables de entorno.
 
@@ -67,6 +84,8 @@ En **local**, el "API Gateway" se simula con un reverse proxy Nginx delante del 
 | Frontend | React Router | 6.26 |
 | Contenedores | Docker / Docker Compose | Docker Desktop reciente |
 | AWS | Cognito, Amplify Hosting, API Gateway, EC2 | — |
+| Mensajería (Parcial 2) | Spring Cloud AWS (SQS + SNS) | 3.2.1 |
+| AWS (Parcial 2) | SNS, SQS, CloudWatch | — |
 
 ## 4. Requisitos
 
@@ -83,7 +102,11 @@ pedidos360/
 ├── frontend/                  # React + Vite + Amplify
 ├── backend/
 │   ├── productos-service/     # Spring Boot — microservicio de productos
-│   └── pedidos-service/       # Spring Boot — microservicio de pedidos
+│   ├── pedidos-service/       # Spring Boot — pedidos (publica eventos en SNS)
+│   ├── eventos-service/       # Parcial 2 — consumidores SQS por dominio + monitor de DLQ
+│   └── mensajeria-admin/      # Parcial 2 — topología SNS/SQS + API REST de administración
+├── infra/                     # Parcial 2 — scripts PowerShell (CloudWatch, demo, limpieza)
+├── .github/workflows/         # CI: compila y prueba todos los componentes
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -108,6 +131,11 @@ Servicios expuestos:
 | pedidos-service | http://localhost:8082 (Swagger: `/swagger-ui.html`) |
 | productos-db | localhost:5433 |
 | pedidos-db | localhost:5434 |
+| eventos-service (Parcial 2) | http://localhost:8083 (Swagger: `/swagger-ui.html`) |
+| mensajeria-admin (Parcial 2) | http://localhost:8090 (Swagger: `/swagger-ui.html`) |
+| eventos-db (Parcial 2) | localhost:5435 |
+
+Para el Parcial 2, `.env` también debe tener las credenciales del Learner Lab (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`). Ver sección 14.
 
 ## 7. Configuración de Cognito (paso a paso)
 
@@ -178,7 +206,8 @@ VITE_COGNITO_USER_POOL_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 ```text
 React (puerto 3000, servido por Nginx)
   ├── /api/productos → productos-service:8081
-  └── /api/pedidos   → pedidos-service:8082
+  ├── /api/pedidos   → pedidos-service:8082
+  └── /api/admin     → mensajeria-admin:8090   (Parcial 2)
 ```
 
 Así, `apiFetch()` siempre llama a rutas relativas (`/api/productos`, `/api/pedidos`), y en AWS basta con apuntar `VITE_API_URL` a la Invoke URL de API Gateway — **la lógica de React no cambia**.
@@ -196,6 +225,7 @@ Así, `apiFetch()` siempre llama a rutas relativas (`/api/productos`, `/api/pedi
 | `GET /api/pedidos/{id}` | ✅ | ✅ |
 | `POST /api/pedidos` | ✅ | ✅ |
 | `PUT /api/pedidos/{id}/estado` | ❌ (403) | ✅ |
+| `/api/admin/**` (mensajeria-admin, Parcial 2) | ❌ (403) | ✅ |
 
 La autorización se aplica en `SecurityConfig` de cada microservicio usando `hasRole(...)` sobre las authorities derivadas del claim `cognito:groups` — no es una comprobación del nombre de usuario.
 
@@ -206,7 +236,11 @@ La autorización se aplica en `SecurityConfig` de cada microservicio usando `has
 ```bash
 cd backend/productos-service && mvn test
 cd backend/pedidos-service && mvn test
+cd backend/eventos-service && mvn test     # Parcial 2: ACK manual, idempotencia y DLQ (Mockito, sin AWS)
+cd backend/mensajeria-admin && mvn test    # Parcial 2: validación de la topología declarada
 ```
+
+Además, GitHub Actions (`.github/workflows/build.yml`) compila y prueba los 4 microservicios y el frontend en cada push.
 
 Cubren: creación/consulta de productos, error 404 al pedir un producto inexistente, error de stock insuficiente, creación de pedidos con `ProductosClient` simulado (Mockito), cambio de estado de un pedido.
 
@@ -278,7 +312,7 @@ curl -i http://localhost:8081/api/productos
 6. Abrir DevTools → Network → mostrar el header `Authorization: Bearer ...` en una petición.
 7. `curl` sin token → mostrar `401`.
 8. Con un usuario `USER`, intentar `POST /api/productos` desde Postman → mostrar `403`.
-9. Mostrar Docker Desktop con los 5 contenedores corriendo.
+9. Mostrar Docker Desktop con los contenedores corriendo.
 10. Mostrar el código de `SecurityConfig` explicando la validación de firma/issuer/expiración/roles.
 11. Explicar en 1-2 minutos qué variables cambian para desplegar en AWS (sección 13).
 
@@ -331,7 +365,8 @@ Para cada microservicio (`productos-service`, `pedidos-service`):
 3. Crear las rutas e integraciones:
    - `ANY /api/productos/{proxy+}` → integración HTTP hacia `http://<IP-privada-EC2-productos>:8081/api/productos/{proxy}`
    - `ANY /api/pedidos/{proxy+}` → integración HTTP hacia `http://<IP-privada-EC2-pedidos>:8082/api/pedidos/{proxy}`
-4. Adjuntar el JWT Authorizer a ambas rutas.
+   - `ANY /api/admin/{proxy+}` → integración HTTP hacia `http://<IP-privada-EC2-admin>:8090/api/admin/{proxy}` (Parcial 2)
+4. Adjuntar el JWT Authorizer a todas las rutas. `eventos-service` **no** se publica en API Gateway: solo lo llama `mensajeria-admin` por la red interna.
 5. Desplegar (`Deploy`) y copiar la **Invoke URL** → esa es tu `VITE_API_URL`.
 
 > Nota: si las instancias EC2 están en una VPC privada, API Gateway debe conectarse mediante un **VPC Link**; documentar esa configuración excede el alcance de esta guía y depende de la VPC concreta que se use — indicarlo explícitamente en la presentación si no se dispone de esos datos.
@@ -349,5 +384,136 @@ Usar **Amazon RDS para PostgreSQL** (una instancia `db.t3.micro` es suficiente),
 | `PRODUCTOS_SERVICE_URL` | `http://productos-service:8081` | `http://<IP-privada-EC2>:8081` |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | URL de Amplify Hosting |
 | `COGNITO_ISSUER_URI` | Igual en ambos entornos (mismo User Pool) | Igual |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` | Credenciales del Learner Lab en `.env` | No se usan: la EC2 toma el rol **LabRole** (Instance profile) |
+| `EVENTOS_SERVICE_URLS` (admin) | `http://eventos-service:8083` | `http://<IP-privada-EC2-eventos>:8083` (separadas por coma si hay varias instancias) |
 
 La lógica de negocio y de seguridad (Java, React) **no cambia**: solo configuración.
+
+---
+
+## 14. Mensajería asíncrona con SNS y SQS (Parcial 2)
+
+Al crear un pedido o cambiar su estado, `pedidos-service` responde de inmediato y **publica un evento** en un tópico SNS. Notificar al cliente, preparar el despacho y auditar se hacen **en segundo plano** en `eventos-service`, con reintentos, DLQ y monitoreo. Si un consumidor cae, los pedidos se siguen creando y los mensajes esperan en su cola.
+
+### 14.1 Topología (1 tópico → 3 colas, cada una con su DLQ)
+
+| Cola | Qué hace (dominio) | Recibe | DLQ | Retención cola | Retención DLQ | Visibility |
+| --- | --- | --- | --- | --- | --- | --- |
+| `pedidos360-notificaciones-q` | Correo al cliente por cada cambio del pedido | **Todos** los eventos (fanout) | `pedidos360-notificaciones-dlq` | 1 día | 14 días | 15 s |
+| `pedidos360-despacho-q` | Crea y actualiza la orden de despacho a domicilio | **Solo** `tipoEntrega = ENVIO` (filter policy) | `pedidos360-despacho-dlq` | 4 días | 14 días | 15 s |
+| `pedidos360-auditoria-q` | Guarda el historial de cada pedido en la BD | **Todos** los eventos (fanout) | `pedidos360-auditoria-dlq` | 7 días | 14 días | 15 s |
+
+- Tópico: `pedidos360-eventos`. Suscripciones con **raw message delivery** (la cola recibe el JSON del evento tal cual).
+- Redrive Policy en las 3 colas: **maxReceiveCount = 3**.
+- Atributos de cada mensaje (los que evalúan los filtros): `tipoEvento`, `tipoEntrega`, `estado`, `eventoId`.
+- Filtro de la suscripción de despacho: `{"tipoEntrega":["ENVIO"]}` (se evalúa sobre los atributos del mensaje, el scope por defecto de SNS).
+
+**Dos patrones de enrutamiento:** *fanout* (notificaciones y auditoría reciben todo) y *entrega selectiva por filtro* (un pedido con retiro en tienda nunca llega a despacho, sin que el publicador sepa quién consume).
+
+### 14.2 Justificación de parámetros
+
+| Parámetro | Valor | Por qué |
+| --- | --- | --- |
+| Visibility timeout | 15 s | Procesar un mensaje toma ~1 s. 15 s da margen holgado sin dejar un mensaje "atascado" mucho tiempo si la instancia cae: a los 15 s otra instancia lo retoma. |
+| maxReceiveCount | 3 | Suficiente para superar una falla breve (3 intentos ≈ 45 s). Más intentos retrasan la detección de un problema real. |
+| Retención notificaciones | 1 día | Un aviso de hace más de un día ya no le sirve al cliente. |
+| Retención despacho | 4 días | Cubre un fin de semana largo con el consumidor caído sin perder despachos. |
+| Retención auditoría | 7 días | La trazabilidad no se puede perder; es la cola más tolerante. |
+| Retención DLQ | 14 días (máximo de SQS) | Tiempo para diagnosticar y reprocesar. Siempre ≥ la retención de su cola (lo valida `TopologiaMensajeria`). |
+| Raw message delivery | true | El consumidor recibe el evento JSON sin el sobre de SNS y los atributos SNS llegan como atributos SQS. |
+| Purga | Manual, desde el admin | La DLQ se purga solo después de revisar la causa (log `[DLQ]` / tabla `registros_dlq`) y reprocesar lo recuperable. Las colas de trabajo no se purgan en producción. |
+
+> Un mensaje que **expira** por retención se borra: **no** pasa a la DLQ. Por eso la DLQ retiene más que la cola.
+
+### 14.3 Recorrido de un mensaje y manejo de errores
+
+1. `PedidoService` guarda el pedido y llama a `EventoPublisher.publicar(...)`. La lógica de negocio no conoce SNS.
+2. `SnsEventoPublisher` publica el JSON en `pedidos360-eventos` con sus atributos.
+3. SNS lo copia a cada cola cuyo filtro coincide.
+4. En `eventos-service`, cada `@SqsListener` (ACK **MANUAL**) delega en `ProcesadorMensajes`:
+   - **Duplicado** (el `eventoId` ya está en la tabla `mensajes_procesados`) → ACK y se ignora. La tabla es compartida, así que funciona con varias instancias.
+   - **Éxito** → registra el `eventoId` y hace **ACK** explícito (`ack.acknowledge()`).
+   - **Error transitorio** (`ErrorTransitorio`, p. ej. proveedor de correo caído) → **sin ACK**. A los 15 s el mensaje vuelve a ser visible y se reintenta. Al 3.er intento fallido, SQS lo mueve a la DLQ (Redrive).
+   - **Error definitivo** (`ErrorDefinitivo`, p. ej. JSON inválido o total ≤ 0) → se envía **directo a la DLQ** con los atributos `causa`, `intento`, `consumidor` y `colaOrigen`, y luego ACK. Reintentar un dato inválido no sirve.
+5. `DlqMonitor` revisa las 3 DLQ cada 15 s (sin borrar ni ocultar mensajes) y registra **una vez** cada mensaje en el log y en la tabla `registros_dlq`: `[DLQ] cola=… messageId=… eventoId=… pedido=… intento=… causa="…"`.
+6. CloudWatch dispara la alarma de esa DLQ y envía un correo.
+7. Desde `mensajeria-admin` (o el panel **Mensajería** del frontend) se **reprocesa** la DLQ: los mensajes vuelven a su cola **con sus atributos originales**. Los transitorios se procesan; los definitivos vuelven a la DLQ.
+
+### 14.4 Dónde está cada cosa
+
+| Requisito | Archivo |
+| --- | --- |
+| Topología declarada en código (tópico, colas, DLQ, Redrive, suscripciones, filtros) | `backend/mensajeria-admin/.../config/TopologiaMensajeria.java` + `application.yml` (`mensajeria.topologia`) |
+| Aplicación idempotente de la topología al iniciar | `mensajeria-admin/.../service/TopologiaService.java`, `TopologiaInicializador.java` |
+| Publicador separado del negocio | `pedidos-service/.../messaging/EventoPublisher.java`, `SnsEventoPublisher.java` |
+| Consumidores por dominio con ACK manual | `eventos-service/.../notificaciones/`, `despacho/`, `auditoria/` (`*Listener.java`) |
+| Reintentos, DLQ directa y duplicados | `eventos-service/.../comun/ProcesadorMensajes.java`, `ControlDuplicados.java` |
+| Consumidor de DLQ para logs (id, intento, causa) | `eventos-service/.../dlq/DlqMonitor.java` |
+| Pausar / reanudar consumidores en otro microservicio | `eventos-service/.../control/ConsumidoresController.java` ← `mensajeria-admin/.../service/ConsumidorService.java` |
+| Configuración centralizada (nombres, IDs de listener) | `application.yml` de cada servicio (`mensajeria.*`); los `@SqsListener` usan `${mensajeria.consumidores.*}` |
+| Panel de administración (ADMIN) | `frontend/src/pages/Mensajeria.jsx` |
+| Alarmas y dashboard de CloudWatch | `infra/1-crear-monitoreo.ps1` |
+
+### 14.5 API de `mensajeria-admin` (Swagger en `http://localhost:8090/swagger-ui.html`)
+
+Todas las rutas exigen un JWT de Cognito del grupo **ADMIN** (`SEGURIDAD_HABILITADA=true`).
+
+| Método | Ruta | Acción |
+| --- | --- | --- |
+| GET | `/api/admin/topologia` | Ver la topología declarada |
+| POST | `/api/admin/topologia/aplicar` | Crear o actualizar en AWS todo lo declarado (idempotente) |
+| GET | `/api/admin/colas?prefijo=pedidos360` | Estado de las colas: disponibles, en proceso, DLQ, retención |
+| GET | `/api/admin/colas/{nombre}` | Estado de una cola |
+| POST | `/api/admin/colas` | Crear cola (opcional: DLQ + Redrive) |
+| DELETE | `/api/admin/colas/{nombre}` | Eliminar cola |
+| POST | `/api/admin/colas/{nombre}/purgar` | Purgar cola |
+| POST | `/api/admin/colas/{nombre}/dlq/reprocesar` | Devolver los mensajes de su DLQ a la cola |
+| POST | `/api/admin/colas/{nombre}/dlq/purgar` | Purgar su DLQ |
+| GET | `/api/admin/topicos` | Listar tópicos |
+| POST / DELETE | `/api/admin/topicos/{nombre}` | Crear / eliminar tópico |
+| GET | `/api/admin/topicos/{nombre}/suscripciones` | Suscripciones con filtro y raw delivery |
+| POST | `/api/admin/topicos/{nombre}/suscripciones` | Suscribir una cola (`{"cola":"…","filtro":"{…}","rawMessageDelivery":true}`) |
+| DELETE | `/api/admin/suscripciones?arn=…` | Eliminar suscripción |
+| POST | `/api/admin/topicos/{nombre}/publicar` | Publicar un mensaje de prueba con atributos |
+| GET | `/api/admin/consumidores` | Estado de cada listener en cada instancia de `eventos-service` |
+| POST | `/api/admin/consumidores/{id}/pausar` · `/reanudar` | Pausar / reanudar (`consumidor-notificaciones`, `consumidor-despacho`, `consumidor-auditoria`) |
+
+### 14.6 Monitoreo (CloudWatch)
+
+`infra/1-crear-monitoreo.ps1 -Correo <tu correo>` crea:
+
+- El tópico `pedidos360-alertas` con suscripción por correo.
+- 3 alarmas, una por DLQ: `ApproximateNumberOfMessagesVisible > 0` (Maximum, 1 minuto).
+- El dashboard **Pedidos360-Mensajeria**, con las 4 métricas por cola:
+
+| Métrica | CloudWatch | Qué decisión permite |
+| --- | --- | --- |
+| Mensajes disponibles | `ApproximateNumberOfMessagesVisible` | Si crece sostenidamente, faltan consumidores: escalar instancias. |
+| Mensajes en proceso | `ApproximateNumberOfMessagesNotVisible` | Si se queda alto, el procesamiento es lento o las instancias caen sin ACK. |
+| Antigüedad del más antiguo | `ApproximateAgeOfOldestMessage` | Si se acerca a la retención, hay riesgo de perder mensajes. |
+| Mensajes en DLQ | `ApproximateNumberOfMessagesVisible` (DLQ) | > 0 = hay fallos: revisar la causa y reprocesar o purgar. |
+
+### 14.7 Ejecutar en local
+
+```powershell
+Copy-Item .env.example .env     # completar Cognito + credenciales del Learner Lab
+docker compose up -d --build
+docker compose logs -f eventos-service mensajeria-admin
+```
+
+Al iniciar, `mensajeria-admin` crea la topología en AWS (`[topologia] …` en su log). Plan B sin Docker: `infra/2-crear-topologia-cli.ps1`.
+
+Segunda instancia de consumidores (demo de escalamiento): `infra/4-segunda-instancia.ps1`.
+
+### 14.8 Despliegue en AWS (servicios nuevos)
+
+- `eventos-service` y `mensajeria-admin` se despliegan igual que los del Parcial 1 (sección 13.3), con el rol **LabRole** como *Instance profile* de la EC2 (así no se ponen credenciales en la instancia).
+- `eventos-service`: `DB_HOST` apunta a RDS (base `eventos_db`). Para escalar, se lanzan más instancias: todas consumen las mismas colas.
+- `mensajeria-admin`: `EVENTOS_SERVICE_URLS` con las IP privadas de las instancias de `eventos-service`; ruta `/api/admin/{proxy+}` en API Gateway (sección 13.4).
+
+### 14.9 Limitaciones conocidas
+
+- La publicación ocurre después de guardar el pedido y no en la misma transacción: si SNS falla en ese instante, el error queda en el log, pero el pedido no se revierte. La solución completa sería un *transactional outbox*.
+- `DlqMonitor` lee las DLQ con `VisibilityTimeout = 0` para no ocultar mensajes. Cada lectura incrementa su `ApproximateReceiveCount` en la DLQ, por lo que el "intento" se toma del atributo `intento` (errores definitivos) o de `maxReceiveCount` (errores transitorios).
+- Pausar un consumidor afecta solo a las instancias listadas en `EVENTOS_SERVICE_URLS`.
+- Suscribir una cola desde el admin reemplaza la *policy* de esa cola por una que autoriza solo a ese tópico.

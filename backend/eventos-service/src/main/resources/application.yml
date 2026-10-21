@@ -1,0 +1,63 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: eventos-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5435}/${DB_NAME:eventos_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:us-east-1}
+      sqs:
+        listener:
+          # Cuántos mensajes procesa cada listener a la vez en ESTA instancia.
+          # max-messages-per-poll nunca puede superar max-concurrent-messages (si no, la app no arranca).
+          max-concurrent-messages: ${SQS_MAX_CONCURRENT:5}
+          max-messages-per-poll: ${SQS_MAX_CONCURRENT:5}
+
+# ---------------------------------------------------------------------------------------------
+# Configuración centralizada de mensajería: nombres de colas, DLQ e IDs de listener.
+# Deben coincidir con la topología que declara mensajeria-admin (mensajeria.topologia).
+# ---------------------------------------------------------------------------------------------
+mensajeria:
+  max-receive-count: 3
+  consumidores:
+    notificaciones:
+      id: consumidor-notificaciones
+      cola: ${COLA_NOTIFICACIONES:pedidos360-notificaciones-q}
+      dlq: ${DLQ_NOTIFICACIONES:pedidos360-notificaciones-dlq}
+    despacho:
+      id: consumidor-despacho
+      cola: ${COLA_DESPACHO:pedidos360-despacho-q}
+      dlq: ${DLQ_DESPACHO:pedidos360-despacho-dlq}
+    auditoria:
+      id: consumidor-auditoria
+      cola: ${COLA_AUDITORIA:pedidos360-auditoria-q}
+      dlq: ${DLQ_AUDITORIA:pedidos360-auditoria-dlq}
+  simulacion:
+    # Tiempo de "trabajo" por mensaje, para que el reparto entre dos instancias se vea en la demo.
+    demora-ms: ${SIMULACION_DEMORA_MS:1000}
+    # true = el servicio de correo "está caído": notificaciones falla con error transitorio,
+    # se reintenta maxReceiveCount veces y SQS lo mueve a la DLQ.
+    fallo-transitorio-notificaciones: ${SIMULAR_FALLO_CORREO:false}
+  dlq-monitor:
+    habilitado: ${DLQ_MONITOR_HABILITADO:true}
+    intervalo-ms: ${DLQ_MONITOR_INTERVALO_MS:15000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

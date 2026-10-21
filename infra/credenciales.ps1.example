@@ -1,0 +1,10 @@
+# =====================================================================
+#  Copia este archivo como credenciales.ps1 (ese nombre está en .gitignore y NUNCA se sube)
+#  y pega las credenciales del Learner Lab: AWS Details -> AWS CLI -> Show.
+#  Vencen al cerrar la sesión del lab: si ves "ExpiredToken", vuelve a pegarlas.
+# =====================================================================
+$env:AWS_ACCESS_KEY_ID     = "PEGA_AQUI"
+$env:AWS_SECRET_ACCESS_KEY = "PEGA_AQUI"
+$env:AWS_SESSION_TOKEN     = "PEGA_AQUI"
+$env:AWS_REGION            = "us-east-1"
+$env:AWS_DEFAULT_REGION    = "us-east-1"

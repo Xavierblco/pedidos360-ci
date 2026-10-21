@@ -1,0 +1,68 @@
+server:
+  port: ${SERVER_PORT:8090}
+
+spring:
+  application:
+    name: mensajeria-admin
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:us-east-1}
+
+# Seguridad: con true, todas las rutas /api/admin/** exigen un JWT de Cognito del grupo ADMIN
+# (igual que productos-service y pedidos-service). Para probar solo con Swagger en local: false.
+seguridad:
+  habilitada: ${SEGURIDAD_HABILITADA:true}
+
+cognito:
+  issuer-uri: ${COGNITO_ISSUER_URI:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXXXX}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# Instancias de eventos-service a las que se envían las órdenes de pausar/reanudar (separadas por coma).
+consumidores:
+  urls: ${EVENTOS_SERVICE_URLS:http://localhost:8083}
+
+# ---------------------------------------------------------------------------------------------
+# TOPOLOGÍA DE MENSAJERÍA (declarada en código, se aplica al iniciar con TopologiaInicializador)
+#   1 tópico SNS  ->  3 colas SQS (cada una con su DLQ y Redrive Policy)
+#   Retención y visibility timeout justificados en el README (sección 14.4).
+# ---------------------------------------------------------------------------------------------
+mensajeria:
+  topologia:
+    crear-al-iniciar: ${TOPOLOGIA_CREAR_AL_INICIAR:true}
+    topico: ${TOPICO_EVENTOS:pedidos360-eventos}
+    max-receive-count: 3
+    colas:
+      - nombre: pedidos360-notificaciones-q
+        dlq: pedidos360-notificaciones-dlq
+        consumidor-id: consumidor-notificaciones
+        visibility-timeout-segundos: 15
+        retencion-segundos: 86400        # 1 día: un aviso de hace más de un día ya no le sirve al cliente
+        dlq-retencion-segundos: 1209600  # 14 días (máximo de SQS) para diagnosticar y reprocesar
+        filtro: ""                       # sin filtro -> fanout: recibe todos los eventos
+      - nombre: pedidos360-despacho-q
+        dlq: pedidos360-despacho-dlq
+        consumidor-id: consumidor-despacho
+        visibility-timeout-segundos: 15
+        retencion-segundos: 345600       # 4 días: cubre un fin de semana largo sin perder despachos
+        dlq-retencion-segundos: 1209600
+        filtro: '{"tipoEntrega":["ENVIO"]}'   # enrutamiento selectivo: solo pedidos con envío a domicilio
+      - nombre: pedidos360-auditoria-q
+        dlq: pedidos360-auditoria-dlq
+        consumidor-id: consumidor-auditoria
+        visibility-timeout-segundos: 15
+        retencion-segundos: 604800       # 7 días: la trazabilidad no se puede perder aunque el consumidor caiga
+        dlq-retencion-segundos: 1209600
+        filtro: ""
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

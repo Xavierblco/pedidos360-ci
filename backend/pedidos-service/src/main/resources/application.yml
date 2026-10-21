@@ -12,6 +12,12 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+  # Parcial 2: región de AWS para el cliente SNS. Las credenciales se leen de las variables
+  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN (local) o del rol LabRole (EC2).
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:us-east-1}
 
 cognito:
   issuer-uri: ${COGNITO_ISSUER_URI:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXXXX}
@@ -28,3 +34,8 @@ productos:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+# Parcial 2: mensajería. Ningún nombre de tópico va escrito en el código; se lee de aquí.
+mensajeria:
+  habilitada: ${MENSAJERIA_HABILITADA:true}
+  topico-eventos: ${TOPICO_EVENTOS:pedidos360-eventos}

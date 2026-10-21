@@ -8,6 +8,9 @@ import com.pedidos360.pedidos.entity.EstadoPedido;
 import com.pedidos360.pedidos.entity.Pedido;
 import com.pedidos360.pedidos.entity.PedidoItem;
 import com.pedidos360.pedidos.exception.ResourceNotFoundException;
+import com.pedidos360.pedidos.messaging.EventoPedido;
+import com.pedidos360.pedidos.messaging.EventoPublisher;
+import com.pedidos360.pedidos.messaging.TipoEvento;
 import com.pedidos360.pedidos.repository.PedidoRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -23,10 +26,12 @@ public class PedidoService {
 
     private final PedidoRepository repository;
     private final ProductosClient productosClient;
+    private final EventoPublisher eventoPublisher;
 
-    public PedidoService(PedidoRepository repository, ProductosClient productosClient) {
+    public PedidoService(PedidoRepository repository, ProductosClient productosClient, EventoPublisher eventoPublisher) {
         this.repository = repository;
         this.productosClient = productosClient;
+        this.eventoPublisher = eventoPublisher;
     }
 
     public List<PedidoDTO> listar() {
@@ -74,14 +79,19 @@ public class PedidoService {
         pedido.setTotal(total);
         pedido.setEstado(EstadoPedido.PENDIENTE);
 
-        return toDTO(repository.save(pedido));
+        Pedido guardado = repository.save(pedido);
+        // Parcial 2: notificaciones, despacho y auditoría se procesan en segundo plano (SNS → SQS).
+        eventoPublisher.publicar(EventoPedido.de(guardado, TipoEvento.PEDIDO_CREADO));
+        return toDTO(guardado);
     }
 
     public PedidoDTO actualizarEstado(Long id, EstadoPedido nuevoEstado) {
         Pedido pedido = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con id " + id));
         pedido.setEstado(nuevoEstado);
-        return toDTO(repository.save(pedido));
+        Pedido guardado = repository.save(pedido);
+        eventoPublisher.publicar(EventoPedido.de(guardado, TipoEvento.PEDIDO_ESTADO_ACTUALIZADO));
+        return toDTO(guardado);
     }
 
     private String emailUsuarioActual() {

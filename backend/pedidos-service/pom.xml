@@ -19,7 +19,21 @@
 
     <properties>
         <java.version>21</java.version>
+        <spring-cloud-aws.version>3.2.1</spring-cloud-aws.version>
     </properties>
+
+    <!-- Parcial 2: BOM de Spring Cloud AWS (3.2.x es la línea compatible con Spring Boot 3.3) -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.awspring.cloud</groupId>
+                <artifactId>spring-cloud-aws-dependencies</artifactId>
+                <version>${spring-cloud-aws.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -47,6 +61,11 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>2.6.0</version>
+        </dependency>
+        <!-- Parcial 2: publicación de eventos de dominio en Amazon SNS -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sns</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
