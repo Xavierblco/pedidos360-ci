@@ -15,6 +15,7 @@ import com.pedidos360.pedidos.repository.PedidoRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -34,10 +35,12 @@ public class PedidoService {
         this.eventoPublisher = eventoPublisher;
     }
 
+    @Transactional(readOnly = true)
     public List<PedidoDTO> listar() {
         return repository.findAll().stream().map(this::toDTO).toList();
     }
 
+    @Transactional(readOnly = true)
     public PedidoDTO obtener(Long id) {
         Pedido pedido = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con id " + id));
@@ -85,6 +88,8 @@ public class PedidoService {
         return toDTO(guardado);
     }
 
+    // Transaccional: toDTO() recorre la colección perezosa "items", que necesita la sesión de Hibernate abierta.
+    @Transactional
     public PedidoDTO actualizarEstado(Long id, EstadoPedido nuevoEstado) {
         Pedido pedido = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con id " + id));
