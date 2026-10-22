@@ -125,7 +125,8 @@ services:
       COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       SEGURIDAD_HABILITADA: ${SEGURIDAD_HABILITADA:-true}
-      EVENTOS_SERVICE_URLS: http://eventos-service:8083
+      # Pausar/reanudar se envía a TODAS las instancias de consumidores (la 2 es infra/4-segunda-instancia.ps1)
+      EVENTOS_SERVICE_URLS: http://eventos-service:8083,http://eventos-service-2:8083
     ports:
       - "8090:8090"
     networks:

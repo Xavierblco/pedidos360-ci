@@ -21,7 +21,8 @@ import java.util.function.Consumer;
  *   <li>Llama a la lógica de dominio. Éxito → registra el evento y ACK.</li>
  *   <li>{@link ErrorDefinitivo} → envía a la DLQ con atributos causa/intento/consumidor y ACK.</li>
  *   <li>{@link ErrorTransitorio} (o error inesperado) → NO hay ACK: el mensaje vuelve a estar visible al
- *       vencer el visibility timeout y se reintenta. Al superar maxReceiveCount, SQS lo mueve a la DLQ.</li>
+ *       vencer el visibility timeout y se reintenta. En el último intento (maxReceiveCount) se envía a la DLQ
+ *       con la causa; si eso fallara, la Redrive Policy de SQS lo mueve igual.</li>
  * </ol>
  * La lógica de negocio de cada dominio no conoce SQS: solo recibe un EventoPedido.
  */
@@ -77,8 +78,13 @@ public class ProcesadorMensajes {
         } catch (RuntimeException e) {
             String tipo = e instanceof ErrorTransitorio ? "ERROR TRANSITORIO" : "ERROR INESPERADO";
             if (intento >= max) {
-                log.error("[{}] {} messageId={} intento={}/{} causa=\"{}\" -> sin ACK; se agotaron los intentos, SQS lo moverá a la DLQ",
+                // Último intento: lo mandamos nosotros a la DLQ para dejar registrada la causa.
+                // Si esto fallara, la Redrive Policy de SQS lo mueve igual (red de seguridad).
+                log.error("[{}] {} messageId={} intento={}/{} causa=\"{}\" -> se agotaron los intentos, se envía a la DLQ",
                         consumidor, tipo, messageId, intento, max, e.getMessage());
+                if (enviarADlq(consumidor, original, "Agotó " + max + " intentos: " + e.getMessage(), intento)) {
+                    ack.acknowledge();
+                }
             } else {
                 log.warn("[{}] {} messageId={} intento={}/{} causa=\"{}\" -> sin ACK; se reintentará al vencer el visibility timeout",
                         consumidor, tipo, messageId, intento, max, e.getMessage());

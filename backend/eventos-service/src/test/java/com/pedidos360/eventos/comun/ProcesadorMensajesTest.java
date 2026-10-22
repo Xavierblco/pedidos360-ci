@@ -102,4 +102,17 @@ class ProcesadorMensajesTest {
         verify(sqs).sendMessage(any(Consumer.class));
         verify(ack).acknowledge();
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void errorTransitorioEnElUltimoIntentoVaALaDlqConCausa() {
+        when(sqs.sendMessage(any(Consumer.class)))
+                .thenReturn(CompletableFuture.completedFuture(SendMessageResponse.builder().messageId("x").build()));
+        procesador.procesar("notificaciones", JSON, mensaje(JSON, 3), ack, e -> {
+            throw new ErrorTransitorio("correo caído");
+        });
+        verify(sqs).sendMessage(any(Consumer.class));
+        verify(ack).acknowledge();
+        verify(duplicados, never()).registrar(anyString(), anyString());
+    }
 }

@@ -433,7 +433,7 @@ Al crear un pedido o cambiar su estado, `pedidos-service` responde de inmediato 
 4. En `eventos-service`, cada `@SqsListener` (ACK **MANUAL**) delega en `ProcesadorMensajes`:
    - **Duplicado** (el `eventoId` ya está en la tabla `mensajes_procesados`) → ACK y se ignora. La tabla es compartida, así que funciona con varias instancias.
    - **Éxito** → registra el `eventoId` y hace **ACK** explícito (`ack.acknowledge()`).
-   - **Error transitorio** (`ErrorTransitorio`, p. ej. proveedor de correo caído) → **sin ACK**. A los 15 s el mensaje vuelve a ser visible y se reintenta. Al 3.er intento fallido, SQS lo mueve a la DLQ (Redrive).
+   - **Error transitorio** (`ErrorTransitorio`, p. ej. proveedor de correo caído) → **sin ACK**. A los 15 s el mensaje vuelve a ser visible y se reintenta. En el 3.er intento (= maxReceiveCount) el consumidor lo envía él mismo a la DLQ **con la causa** y hace ACK. La Redrive Policy queda como red de seguridad: si la instancia cae antes de poder enviarlo, SQS lo mueve igual.
    - **Error definitivo** (`ErrorDefinitivo`, p. ej. JSON inválido o total ≤ 0) → se envía **directo a la DLQ** con los atributos `causa`, `intento`, `consumidor` y `colaOrigen`, y luego ACK. Reintentar un dato inválido no sirve.
 5. `DlqMonitor` revisa las 3 DLQ cada 15 s (sin borrar ni ocultar mensajes) y registra **una vez** cada mensaje en el log y en la tabla `registros_dlq`: `[DLQ] cola=… messageId=… eventoId=… pedido=… intento=… causa="…"`.
 6. CloudWatch dispara la alarma de esa DLQ y envía un correo.
@@ -514,6 +514,6 @@ Segunda instancia de consumidores (demo de escalamiento): `infra/4-segunda-insta
 ### 14.9 Limitaciones conocidas
 
 - La publicación ocurre después de guardar el pedido y no en la misma transacción: si SNS falla en ese instante, el error queda en el log, pero el pedido no se revierte. La solución completa sería un *transactional outbox*.
-- `DlqMonitor` lee las DLQ con `VisibilityTimeout = 0` para no ocultar mensajes. Cada lectura incrementa su `ApproximateReceiveCount` en la DLQ, por lo que el "intento" se toma del atributo `intento` (errores definitivos) o de `maxReceiveCount` (errores transitorios).
-- Pausar un consumidor afecta solo a las instancias listadas en `EVENTOS_SERVICE_URLS`.
+- `DlqMonitor` lee las DLQ con `VisibilityTimeout = 0` para no ocultar mensajes. Cada lectura incrementa su `ApproximateReceiveCount` en la DLQ, por eso el "intento" se toma del atributo `intento` que agrega el consumidor (o de `maxReceiveCount` si el mensaje lo movió la Redrive Policy).
+- Pausar un consumidor afecta a las instancias listadas en `EVENTOS_SERVICE_URLS` (en Docker Compose: `eventos-service` y `eventos-service-2`). Si una no está corriendo, el panel la muestra como "Instancia no disponible".
 - Suscribir una cola desde el admin reemplaza la *policy* de esa cola por una que autoriza solo a ese tópico.

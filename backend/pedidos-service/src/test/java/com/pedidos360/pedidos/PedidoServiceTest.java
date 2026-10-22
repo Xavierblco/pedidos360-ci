@@ -16,6 +16,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -38,6 +39,13 @@ class PedidoServiceTest {
 
     @MockBean
     private ProductosClient productosClient;
+
+    /**
+     * NimbusJwtDecoder.withIssuerLocation(...).build() descarga la configuración del issuer al crear el bean.
+     * En pruebas no hay User Pool real, así que se reemplaza por un mock para que el contexto arranque.
+     */
+    @MockBean
+    private JwtDecoder jwtDecoder;
 
     @BeforeEach
     void autenticarUsuarioDePrueba() {

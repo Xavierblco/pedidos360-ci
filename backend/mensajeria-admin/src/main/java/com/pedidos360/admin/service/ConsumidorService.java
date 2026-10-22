@@ -34,7 +34,7 @@ public class ConsumidorService {
                         .body(new ParameterizedTypeReference<List<EstadoConsumidor>>() {});
                 if (lista != null) resultado.addAll(lista);
             } catch (RestClientException e) {
-                resultado.add(new EstadoConsumidor(null, false, base, "Instancia no disponible: " + e.getMessage()));
+                resultado.add(new EstadoConsumidor(null, false, base, "Instancia no disponible"));
             }
         }
         return resultado;
@@ -55,7 +55,7 @@ public class ConsumidorService {
                 resultado.add(http.post().uri(base + "/api/consumidores/{id}/" + accion, id).retrieve()
                         .body(EstadoConsumidor.class));
             } catch (RestClientException e) {
-                resultado.add(new EstadoConsumidor(id, false, base, "No se pudo " + accion + ": " + e.getMessage()));
+                resultado.add(new EstadoConsumidor(id, false, base, "Instancia no disponible (no se pudo " + accion + ")"));
             }
         }
         return resultado;

@@ -69,8 +69,8 @@ public class DlqMonitor {
             String causa = valor(attrs, "causa");
             String intento = valor(attrs, "intento");
             if (causa == null) {
-                // Llegó por la Redrive Policy de SQS: se agotaron los reintentos de un error transitorio.
-                causa = "Superó maxReceiveCount=" + props.maxReceiveCount() + " (error transitorio sin ACK)";
+                // Llegó por la Redrive Policy de SQS (red de seguridad): el consumidor no alcanzó a enviarlo él mismo.
+                causa = "Superó maxReceiveCount=" + props.maxReceiveCount() + " (movido por la Redrive Policy de SQS)";
                 intento = String.valueOf(props.maxReceiveCount());
             }
             String eventoId = valor(attrs, "eventoId");

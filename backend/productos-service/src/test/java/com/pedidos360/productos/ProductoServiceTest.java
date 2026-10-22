@@ -9,6 +9,8 @@ import com.pedidos360.productos.service.ProductoService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,6 +18,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @ActiveProfiles("test")
 class ProductoServiceTest {
+
+    /**
+     * NimbusJwtDecoder.withIssuerLocation(...).build() descarga la configuración del issuer al crear el bean.
+     * En pruebas no hay User Pool real, así que se reemplaza por un mock para que el contexto arranque.
+     */
+    @MockBean
+    private JwtDecoder jwtDecoder;
 
     @Autowired
     private ProductoService service;
